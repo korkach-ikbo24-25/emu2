@@ -1,0 +1,9 @@
+key;value
+package;A
+repo;test_repos/simple.txt
+repo_mode;test
+output;simple.svg
+ascii_tree;false
+
+
+# в 5 строке может быть также output;diamond.svg или output;cycle.svg или output;deep.svg
