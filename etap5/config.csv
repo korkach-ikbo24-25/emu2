@@ -1,0 +1,6 @@
+key;value
+package;A
+repo;test_repos/cycle.txt
+repo_mode;test
+output;cycle.svg
+ascii_tree;true
