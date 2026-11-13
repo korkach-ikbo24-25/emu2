@@ -1,194 +1,170 @@
-# os — работа с путями и файлами
+"""Модуль визуализации графа зависимостей (этап 5)."""
+
 import os
-# shutil — поиск исполняемого файла в PATH (which)
 import shutil
-# subprocess — запуск внешних программ (dot) из Python
 import subprocess
-# tempfile — временные файлы (.dot) для передачи в dot
 import tempfile
-# typing — подсказки типов
 from typing import Dict, List, Tuple
 
+# Константы (правило М1: убираем магические числа)
+DOT_FILENAME_SUFFIX = ".dot"
+SVG_EXTENSION = ".svg"
+DOT_COMMAND = "dot"
 
-# Собственное исключение для ошибок визуализации
+
 class VisualizeError(Exception):
-    # Докстринг
     """Ошибка визуализации (например, не найден Graphviz)."""
-    # Пустое тело
-    pass
 
 
-# Публичная функция — DOT-представление графа
 def to_dot(
     edges: Dict[str, List[str]],
     cycles: List[Tuple[str, str]],
     root: str,
 ) -> str:
-    # Докстринг
+    """Создает текстовое представление графа на языке DOT.
+
+    Args:
+        edges: Словарь связей графа (узел -> список детей).
+        cycles: Список кортежей обратных ребер (циклов).
+        root: Корневой узел графа.
+
+    Returns:
+        Строка с кодом DOT.
     """
-    Текстовое представление графа на языке DOT.
-    Корень голубой, обратные рёбра — красные пунктирные.
-    """
-    # Будущие строки DOT
     lines: List[str] = []
-    # Открываем digraph
     lines.append("digraph deps {")
-    # Направление слева-направо
     lines.append("  rankdir=LR;")
-    # Стиль узлов по умолчанию: скруглённый прямоугольник с белой заливкой
-    lines.append('  node [shape=box, style="rounded,filled", fillcolor="white"];')
-    # Цвет рёбер по умолчанию — тёмно-серый
-    lines.append('  edge [color="#333333"];')
-    # Корневой узел — с голубой заливкой и жирной рамкой
     lines.append(
-        f'  "{root}" [fillcolor="#cfe8ff", penwidth=2];'
+        '  node [shape=box, style="rounded,filled", fillcolor="white"];'
     )
-    # Множество обратных рёбер — для быстрой проверки
-    cycle_set = {(a, b) for a, b in cycles}
-    # Идём по всем рёбрам
+    lines.append('  edge [color="#333333"];')
+    lines.append(f'  "{root}" [fillcolor="#cfe8ff", penwidth=2];')
+
+    cycle_set = set(cycles)
     for src, dsts in edges.items():
-        # И по всем детям каждого узла
         for dst in dsts:
-            # Если ребро — цикл
             if (src, dst) in cycle_set:
-                # Рисуем красным пунктиром
                 lines.append(
                     f'  "{src}" -> "{dst}" '
                     f'[color="red", penwidth=2, style="dashed"];'
                 )
-            # Иначе — обычное ребро
             else:
-                # Стандартный стиль
                 lines.append(f'  "{src}" -> "{dst}";')
-    # Закрываем digraph
+
     lines.append("}")
-    # Возвращаем текст с завершающим переводом строки
     return "\n".join(lines) + "\n"
 
 
-# Публичная функция — рендер SVG через dot
+def _run_dot(dot_bin: str, tmp_dot: str, out_path: str) -> None:
+    """Вспомогательная функция для запуска Graphviz.
+
+    Args:
+        dot_bin: Путь к исполняемому файлу dot.
+        tmp_dot: Путь к временному файлу .dot.
+        out_path: Путь, куда сохранить SVG.
+
+    Raises:
+        VisualizeError: Если dot завершился с ошибкой.
+    """
+    result = subprocess.run(
+        [dot_bin, "-Tsvg", tmp_dot, "-o", out_path],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        error_msg = result.stderr.strip() or "без сообщения"
+        raise VisualizeError(
+            f"Graphviz завершился с кодом {result.returncode}: {error_msg}"
+        )
+
+
 def render_svg(dot_source: str, out_path: str) -> None:
-    # Докстринг
+    """Сохраняет изображение графа в формате SVG через Graphviz.
+
+    Args:
+        dot_source: Текст графа на языке DOT.
+        out_path: Имя выходного файла (с расширением .svg).
+
+    Raises:
+        VisualizeError: Если Graphviz не установлен или упал.
     """
-    Запускает системный `dot` (Graphviz) и пишет SVG в out_path.
-    Бросает VisualizeError, если Graphviz не установлен или dot упал.
-    """
-    # Ищем dot в PATH
-    dot_bin = shutil.which("dot")
-    # Если не нашли — понятная ошибка с инструкцией
+    dot_bin = shutil.which(DOT_COMMAND)
     if dot_bin is None:
-        # Бросаем исключение
         raise VisualizeError(
             "Graphviz 'dot' не найден в PATH. Установите Graphviz "
             "(winget install Graphviz.Graphviz / sudo apt install graphviz) "
             "и перезапустите терминал."
         )
 
-    # Абсолютный путь к выходному файлу
     out_dir = os.path.dirname(os.path.abspath(out_path)) or "."
-    # Создаём временный .dot-файл в том же каталоге
-    fd, tmp_dot = tempfile.mkstemp(suffix=".dot", dir=out_dir)
-    # Оборачиваем в try/finally, чтобы точно удалить временный файл
+    fd, tmp_dot = tempfile.mkstemp(
+        suffix=DOT_FILENAME_SUFFIX, dir=out_dir
+    )
+    
     try:
-        # Оборачиваем файловый дескриптор в объект-файл и пишем DOT
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            # Записываем DOT-текст
             f.write(dot_source)
-        # Запускаем dot; -Tsvg — выход SVG; -o — куда писать
-        result = subprocess.run(
-            [dot_bin, "-Tsvg", tmp_dot, "-o", out_path],
-            capture_output=True,
-            text=True,
-        )
-        # Если dot вернул ненулевой код — ошибка
-        if result.returncode != 0:
-            # Бросаем с stderr
-            raise VisualizeError(
-                f"Graphviz завершился с кодом {result.returncode}: "
-                f"{result.stderr.strip() or 'без сообщения'}"
-            )
-        # Проверяем, что файл действительно создан
+        
+        _run_dot(dot_bin, tmp_dot, out_path)
+
         if not os.path.isfile(out_path):
-            # Иначе — ошибка
-            raise VisualizeError(
-                f"Graphviz не создал файл: {out_path}"
-            )
-    # finally выполнится даже при исключении
+            raise VisualizeError(f"Graphviz не создал файл: {out_path}")
     finally:
-        # Пытаемся удалить временный .dot
         try:
-            # Удаляем файл
             os.unlink(tmp_dot)
-        # Игнорируем ошибку удаления
         except OSError:
-            # Ничего не делаем
             pass
 
 
-# Публичная функция — ASCII-дерево зависимостей
-def ascii_tree(
-    edges: Dict[str, List[str]], root: str
+def _format_ascii_node(
+    node: str, prefix: str, is_last: bool, is_cycle: bool
 ) -> str:
-    # Докстринг
+    """Форматирует одну строку ASCII-дерева.
+
+    Args:
+        node: Имя узла.
+        prefix: Отступ для текущего уровня.
+        is_last: Является ли узел последним ребенком.
+        is_cycle: Является ли узел циклом.
+
+    Returns:
+        Отформатированная строка.
     """
-    ASCII-дерево зависимостей от root.
-    Итеративно (без рекурсии), с защитой от циклов.
+    connector = "└── " if is_last else "├── "
+    cycle_marker = " (цикл)" if is_cycle else ""
+    return f"{prefix}{connector}{node}{cycle_marker}"
+
+
+def ascii_tree(edges: Dict[str, List[str]], root: str) -> str:
+    """Строит ASCII-дерево зависимостей от корня.
+
+    Args:
+        edges: Словарь связей графа (узел -> список детей).
+        root: Корневой узел.
+
+    Returns:
+        Строка с деревом.
     """
-    # Список строк результата, начинаем с корня
     out: List[str] = [root]
+    stack = [(root, "", frozenset({root}), edges.get(root, []), 0)]
 
-    # Стек кадров: (узел, префикс, путь-на-стеке, дети, индекс ребёнка)
-    stack: List[Tuple[str, str, frozenset, List[str], int]] = [
-        (root, "", frozenset({root}), edges.get(root, []), 0)
-    ]
-
-    # Основной цикл
     while stack:
-        # Снимаем верхний кадр
         node, prefix, path, children, idx = stack.pop()
-        # Если все дети обработаны — кадр больше не нужен
         if idx >= len(children):
-            # Переходим к следующему кадру
             continue
 
-        # Берём ребёнка по индексу
         child = children[idx]
-        # Последний ли это ребёнок (для выбора └── vs ├──)
         is_last = (idx == len(children) - 1)
-        # Символ-соединитель
-        connector = "└── " if is_last else "├── "
+        is_cycle = child in path
 
-        # Если ребёнок уже на текущем пути — цикл
-        if child in path:
-            # Печатаем с пометкой
-            out.append(f"{prefix}{connector}{child} (цикл)")
-            # Возвращаем кадр с увеличенным индексом
-            stack.append((node, prefix, path, children, idx + 1))
-            # Не спускаемся — иначе бесконечно
-            continue
+        out.append(_format_ascii_node(child, prefix, is_last, is_cycle))
 
-        # Печатаем ребёнка
-        out.append(f"{prefix}{connector}{child}")
-        # Новый префикс: вертикальная черта, если есть ещё дети, иначе пробелы
-        new_prefix = prefix + ("    " if is_last else "│   ")
-
-        # Сначала — «продолжение» текущего узла (следующий ребёнок)
         stack.append((node, prefix, path, children, idx + 1))
-        # Затем — спуск в ребёнка (LIFO: он окажется «внутри»)
-        stack.append(
-            (
-                # Ребёнок
-                child,
-                # Новый префикс
-                new_prefix,
-                # Путь + ребёнок (неизменяемое множество)
-                path | {child},
-                # Дети ребёнка
-                edges.get(child, []),
-                # Начинаем с первого
-                0,
-            )
-        )
 
-    # Склеиваем строки через перевод строки
+        if not is_cycle:
+            new_prefix = prefix + ("    " if is_last else "│   ")
+            stack.append(
+                (child, new_prefix, path | {child}, edges.get(child, []), 0)
+            )
+
     return "\n".join(out)
