@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+
 .venv/
 venv/
 env/
@@ -9,8 +10,13 @@ env/
 .idea/
 *.swp
 *.swo
-.DS_Store
 
-*.svg          # генерируются программой
-*.dot          # временные файлы для Graphviz
-_case.csv      # временные конфиги для тестов
+.DS_Store
+Thumbs.db
+
+*.dot
+_case.csv
+bad.csv
+_raw.py
+_diag.py
+_check.py
