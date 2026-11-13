@@ -105,3 +105,90 @@ def render_svg(dot_source: str, out_path: str) -> None:
             # Бросаем с stderr
             raise VisualizeError(
                 f"Graphviz завершился с кодом {result.returncode}: "
+                f"{result.stderr.strip() or 'без сообщения'}"
+            )
+        # Проверяем, что файл действительно создан
+        if not os.path.isfile(out_path):
+            # Иначе — ошибка
+            raise VisualizeError(
+                f"Graphviz не создал файл: {out_path}"
+            )
+    # finally выполнится даже при исключении
+    finally:
+        # Пытаемся удалить временный .dot
+        try:
+            # Удаляем файл
+            os.unlink(tmp_dot)
+        # Игнорируем ошибку удаления
+        except OSError:
+            # Ничего не делаем
+            pass
+
+
+# Публичная функция — ASCII-дерево зависимостей
+def ascii_tree(
+    edges: Dict[str, List[str]], root: str
+) -> str:
+    # Докстринг
+    """
+    ASCII-дерево зависимостей от root.
+    Итеративно (без рекурсии), с защитой от циклов.
+    """
+    # Список строк результата, начинаем с корня
+    out: List[str] = [root]
+
+    # Стек кадров: (узел, префикс, путь-на-стеке, дети, индекс ребёнка)
+    stack: List[Tuple[str, str, frozenset, List[str], int]] = [
+        (root, "", frozenset({root}), edges.get(root, []), 0)
+    ]
+
+    # Основной цикл
+    while stack:
+        # Снимаем верхний кадр
+        node, prefix, path, children, idx = stack.pop()
+        # Если все дети обработаны — кадр больше не нужен
+        if idx >= len(children):
+            # Переходим к следующему кадру
+            continue
+
+        # Берём ребёнка по индексу
+        child = children[idx]
+        # Последний ли это ребёнок (для выбора └── vs ├──)
+        is_last = (idx == len(children) - 1)
+        # Символ-соединитель
+        connector = "└── " if is_last else "├── "
+
+        # Если ребёнок уже на текущем пути — цикл
+        if child in path:
+            # Печатаем с пометкой
+            out.append(f"{prefix}{connector}{child} (цикл)")
+            # Возвращаем кадр с увеличенным индексом
+            stack.append((node, prefix, path, children, idx + 1))
+            # Не спускаемся — иначе бесконечно
+            continue
+
+        # Печатаем ребёнка
+        out.append(f"{prefix}{connector}{child}")
+        # Новый префикс: вертикальная черта, если есть ещё дети, иначе пробелы
+        new_prefix = prefix + ("    " if is_last else "│   ")
+
+        # Сначала — «продолжение» текущего узла (следующий ребёнок)
+        stack.append((node, prefix, path, children, idx + 1))
+        # Затем — спуск в ребёнка (LIFO: он окажется «внутри»)
+        stack.append(
+            (
+                # Ребёнок
+                child,
+                # Новый префикс
+                new_prefix,
+                # Путь + ребёнок (неизменяемое множество)
+                path | {child},
+                # Дети ребёнка
+                edges.get(child, []),
+                # Начинаем с первого
+                0,
+            )
+        )
+
+    # Склеиваем строки через перевод строки
+    return "\n".join(out)
